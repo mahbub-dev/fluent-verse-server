@@ -16,15 +16,15 @@ app.use(express.json(), express.urlencoded({ extended: true }));
 
 const jwtverify = (req, res, next) => {
 	try {
-		const authorization = req.header.authorization;
-		const token = authorization.split(" ")[1];
+		const authorization = req.headers.authorization;
+		const token = authorization?.split(" ")[1];
 		if (token) {
 			const user = jwt.verify(token, process.env.JWT_SEC);
 			if (user) {
 				req.user = user;
 				next();
 			} else res.status(401).json("unauthorized");
-		} else res.status(400).json("token is not exist");
+		} else res.status(403).json("token is not exist");
 	} catch (error) {
 		errorResponse(res, error);
 	}
@@ -47,7 +47,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		console.log("Connected to MongoDB");
 		// collection
 		const userCollection = db.collection("users");
-
+		const classesCollection = db.collection("classes");
 		// user routes
 		app.post("/user", async (req, res) => {
 			try {
@@ -58,15 +58,15 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				} else {
 					const { password, confirmPassword, photoURL, ...rest } =
 						req.body;
-					insertData = rest;
+					insertData = { ...rest, image: photoURL };
 				}
 
 				insertData.role = "student";
 				const isUserExist = await userCollection.findOne({
 					email: insertData.email,
 				});
- 
-				if(!isUserExist) {
+
+				if (!isUserExist) {
 					await userCollection.insertOne(insertData);
 				}
 
@@ -90,6 +90,61 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 
+		// get logged user
+		app.get("/server-logged", jwtverify, async (req, res) => {
+			try {
+				const user = await userCollection.findOne({
+					email: req.user.email,
+				});
+				res.status(200).json(user);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		// get instructor
+		app.get("/user/:role", async (req, res) => {
+			try {
+				const role = req.params.role;
+				const result = await userCollection
+					.find({ role: role })
+					.toArray();
+				res.status(200).json(result);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		// get instructor data with class details
+		app.get("/instructor", async (req, res) => {
+			try {
+				const classes = await classesCollection.find().toArray();
+				const data = [];
+				const instructors = await userCollection
+					.find({ role: "instructor" })
+					.toArray();
+				instructors.forEach((i, ind) => {
+					const result = classes.filter(
+						(c) => c.instructor.toString() === i._id.toString()
+					);
+					data.push({ instructor: i, classes: result });
+				});
+				res.status(200).json(data);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		// get classes
+		app.get("/classes", async (req, res) => {
+			try {
+				const data = await classesCollection.find().toArray();
+				res.status(200).json(data);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
 		// Start the server
 		app.listen(port, () => {
 			console.log(`Server is listening on port ${port}`);
@@ -98,5 +153,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 	.catch((err) => {
 		console.error("Error connecting to MongoDB:", err);
 	});
-
+app.get("/", (req, res) => {
+	res.send("server is running");
+});
 // routes
