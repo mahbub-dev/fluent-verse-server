@@ -1,5 +1,5 @@
 const express = require("express");
-const { MongoClient } = require("mongodb");
+const { MongoClient, ObjectId } = require("mongodb");
 const cors = require("cors");
 const env = require("dotenv");
 const jwt = require("jsonwebtoken");
@@ -135,6 +135,24 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 
+		// get one instructor data with class details
+		app.get("/instructor/:id", async (req, res) => {
+			try {
+				const id = req.params.id;
+				const instructor = await userCollection.findOne({
+					_id: new ObjectId(id),
+				});
+				const classes = await classesCollection
+					.find({
+						instructor: new ObjectId(id),
+					})
+					.toArray();
+
+				res.status(200).json({ instructor, classes });
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
 		// get classes
 		app.get("/classes", async (req, res) => {
 			try {
