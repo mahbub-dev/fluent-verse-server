@@ -115,6 +115,20 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 
+		// select class and update user
+		app.put("/user/select-class/:classId", jwtverify, async (req, res) => {
+			try {
+				const classId = req.params.classId;
+				const user = await userCollection.updateOne(
+					{ _id: new ObjectId(req.user._id) },
+					{ $push: { selectedClasses: new ObjectId(classId) } }
+				);
+				res.status(200).json(user);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
 		// get instructor data with class details
 		app.get("/instructor", async (req, res) => {
 			try {
@@ -153,6 +167,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				errorResponse(res, error);
 			}
 		});
+
 		// get classes
 		app.get("/classes", async (req, res) => {
 			try {
