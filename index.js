@@ -119,11 +119,22 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		app.put("/user/select-class/:classId", jwtverify, async (req, res) => {
 			try {
 				const classId = req.params.classId;
-				const user = await userCollection.updateOne(
-					{ _id: new ObjectId(req.user._id) },
-					{ $push: { selectedClasses: new ObjectId(classId) } }
-				);
-				res.status(200).json(user);
+				const query = req.query?.action;
+				if (query === "add") {
+					const user = await userCollection.updateOne(
+						{ _id: new ObjectId(req.user._id) },
+						{ $push: { selectedClasses: new ObjectId(classId) } }
+					);
+					res.status(200).json(user);
+					return;
+				}
+				if (query === "remove") {
+					const user = await userCollection.updateOne(
+						{ _id: new ObjectId(req.user._id) },
+						{ $pull: { selectedClasses: new ObjectId(classId) } }
+					);
+					res.status(200).json(user);
+				}
 			} catch (error) {
 				errorResponse(res, error);
 			}
