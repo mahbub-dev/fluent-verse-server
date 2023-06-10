@@ -50,6 +50,9 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		// collection
 		const userCollection = db.collection("users");
 		const classesCollection = db.collection("classes");
+		const selectedClassCollection = db.collection(
+			"selectedClassCollection"
+		);
 		const paymentsCollection = db.collection("payments");
 		// user routes
 		app.post("/user", async (req, res) => {
@@ -118,31 +121,6 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 
-		// select class and update user
-		app.put("/user/select-class/:classId", jwtverify, async (req, res) => {
-			try {
-				const classId = req.params.classId;
-				const query = req.query?.action;
-				if (query === "add") {
-					const user = await userCollection.updateOne(
-						{ _id: new ObjectId(req.user._id) },
-						{ $push: { selectedClasses: new ObjectId(classId) } }
-					);
-					res.status(200).json(user);
-					return;
-				}
-				if (query === "remove") {
-					const user = await userCollection.updateOne(
-						{ _id: new ObjectId(req.user._id) },
-						{ $pull: { selectedClasses: new ObjectId(classId) } }
-					);
-					res.status(200).json(user);
-				}
-			} catch (error) {
-				errorResponse(res, error);
-			}
-		});
-
 		// get instructor data with class details
 		app.get("/instructor", async (req, res) => {
 			try {
@@ -182,7 +160,66 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 
-		// get classes
+		// classes api
+		app.post("/select-class/:classId", jwtverify, async (req, res) => {
+			try {
+				const classId = req.params.classId;
+				const query = req.query?.action;
+				if (query === "add") {
+					let user;
+					const selectlist = await selectedClassCollection.findOne({
+						userId: new ObjectId(req.user._id),
+					});
+					if (selectlist) {
+						user = await selectedClassCollection.updateOne(
+							{ userId: new ObjectId(req.user._id) },
+							{
+								$push: {
+									selectedClasses: new ObjectId(classId),
+								},
+							}
+						);
+					} else {
+						user = await selectedClassCollection.insertOne({
+							userId: new ObjectId(req.user._id),
+							selectedClasses: [new ObjectId(classId)],
+						});
+					}
+					res.status(200).json(user);
+					return;
+				}
+
+				if (query === "remove") {
+					const user = await selectedClassCollection.updateOne(
+						{ userId: new ObjectId(req.user._id) },
+						{ $pull: { selectedClasses: new ObjectId(classId) } }
+					);
+					res.status(200).json(user);
+				}
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		app.get("/selected-classes", jwtverify, async (req, res) => {
+			try {
+				const query = req.query.action;
+				const classIds = await selectedClassCollection.findOne({
+					userId: new ObjectId(req.user._id),
+				});
+				if (query === "get_only_ids") {
+					res.status(200).json(classIds);
+					return;
+				}
+
+				const selectedClass = await classesCollection
+					.find({ _id: { $in: classIds.selectedClasses } })
+					.toArray();
+				res.status(200).json(selectedClass);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
 		app.get("/classes", async (req, res) => {
 			try {
 				const data = await classesCollection.find().toArray();
@@ -191,7 +228,6 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				errorResponse(res, error);
 			}
 		});
-
 		// payments
 		// create payment intent
 		app.post("/create-payment-intent", jwtverify, async (req, res) => {
@@ -218,12 +254,13 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 					userId: new ObjectId(req.user._id),
 				});
 
-				const removeSelectClass = await userCollection.updateOne(
-					{
-						_id: new ObjectId(req.user._id),
-					},
-					{ $pull: { selectedClasses: { $in: classeIds } } }
-				);
+				const removeSelectClass =
+					await selectedClassCollection.updateOne(
+						{
+							userId: new ObjectId(req.user._id),
+						},
+						{ $pull: { selectedClasses: { $in: classeIds } } }
+					);
 
 				const enrolledClasses = await classesCollection.updateMany(
 					{
@@ -234,8 +271,22 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				const updatedDocuments = await classesCollection
 					.find({ _id: { $in: classeIds } })
 					.toArray();
-				console.log(updatedDocuments);
 				res.status(201).json(updatedDocuments);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		// get payment details
+		app.get("/payments", jwtverify, async (req, res) => {
+			try {
+				const payments = await paymentsCollection
+					.find({
+						userId: new ObjectId(req.user._id),
+					})
+					.sort({ date: -1 })
+					.toArray();
+				res.status(200).json(payments);
 			} catch (error) {
 				errorResponse(res, error);
 			}
