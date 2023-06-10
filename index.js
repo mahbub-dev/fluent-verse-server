@@ -5,11 +5,13 @@ const env = require("dotenv");
 const jwt = require("jsonwebtoken");
 env.config();
 const app = express();
+const stripe = require("stripe")(process.env.PAYMENT_SK);
 const port = process.env.PORT || 5000;
 const errorResponse = (res, error) => {
 	console.log(error);
 	res.status(500).send(error);
 };
+
 // middlewares
 app.use(cors());
 app.use(express.json(), express.urlencoded({ extended: true }));
@@ -48,6 +50,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		// collection
 		const userCollection = db.collection("users");
 		const classesCollection = db.collection("classes");
+		const paymentsCollection = db.collection("payments");
 		// user routes
 		app.post("/user", async (req, res) => {
 			try {
@@ -189,6 +192,54 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 
+		// payments
+		// create payment intent
+		app.post("/create-payment-intent", jwtverify, async (req, res) => {
+			const { price } = req.body;
+			const amount = parseInt(price * 100);
+			const paymentIntent = await stripe.paymentIntents.create({
+				amount: amount,
+				currency: "usd",
+				payment_method_types: ["card"],
+			});
+
+			res.send({
+				clientSecret: paymentIntent.client_secret,
+			});
+		});
+		//   save payment info
+		app.post("/payments", jwtverify, async (req, res) => {
+			const classeIds = req.body?.classItemsId.map(
+				(i) => new ObjectId(i)
+			);
+			try {
+				const result = await paymentsCollection.insertOne({
+					...req.body,
+					userId: new ObjectId(req.user._id),
+				});
+
+				const removeSelectClass = await userCollection.updateOne(
+					{
+						_id: new ObjectId(req.user._id),
+					},
+					{ $pull: { selectedClasses: { $in: classeIds } } }
+				);
+
+				const enrolledClasses = await classesCollection.updateMany(
+					{
+						_id: { $in: classeIds },
+					},
+					{ $set: { isEnrolled: true } }
+				);
+				const updatedDocuments = await classesCollection
+					.find({ _id: { $in: classeIds } })
+					.toArray();
+				console.log(updatedDocuments);
+				res.status(201).json(updatedDocuments);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
 		// Start the server
 		app.listen(port, () => {
 			console.log(`Server is listening on port ${port}`);
