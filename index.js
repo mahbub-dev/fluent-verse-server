@@ -87,7 +87,10 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		// get classes
 		const getClasses = async () => {
 			try {
-				return await classesCollection.find().toArray();
+				const result = await classesCollection
+					.find({ status: "approved" })
+					.toArray();
+				return result;
 			} catch (error) {
 				return error;
 			}
@@ -273,7 +276,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 					userId: new ObjectId(req.user._id),
 				});
 				const classes = await getClasses();
-				const result = classes.map((i) => {
+				const result = classes?.map((i) => {
 					if (
 						enRolledclassIds?.enrolled
 							.map((id) => id.toString())
@@ -410,6 +413,8 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				reqData.status = "pending";
 				reqData.enrolled = 0;
 				reqData.feedback = "";
+				reqData.price = Number(req.body.price);
+				reqData.availableSeats = Number(req.body.availableSeats);
 				const classes = await classesCollection.insertOne({
 					...reqData,
 					...reqData,
@@ -467,7 +472,6 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 					}
 					if (query === "updateFeedback") {
 						const feedback = req.body.text;
-						console.log(feedback);
 						const update = await classesCollection.updateOne(
 							{
 								_id: new ObjectId(classId),
