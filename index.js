@@ -86,39 +86,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		// get classes
 		const getClasses = async () => {
 			try {
-				return await classesCollection
-					.aggregate([
-						{
-							$lookup: {
-								from: "users",
-								let: { instructorId: "$instructor" },
-								pipeline: [
-									{
-										$match: {
-											$expr: {
-												$eq: ["$_id", "$$instructorId"],
-											},
-											role: "instructor",
-										},
-									},
-								],
-								as: "instructorData",
-							},
-						},
-						{
-							$addFields: {
-								instructor: {
-									$arrayElemAt: ["$instructorData", 0],
-								},
-							},
-						},
-						{
-							$project: {
-								instructorData: 0,
-							},
-						},
-					])
-					.toArray();
+				return await classesCollection.find().toArray();
 			} catch (error) {
 				return error;
 			}
@@ -178,7 +146,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 
-		// get instructor
+		// get user by role
 		app.get("/user/:role", async (req, res) => {
 			try {
 				const role = req.params.role;
@@ -186,45 +154,6 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 					.find({ role: role })
 					.toArray();
 				res.status(200).json(result);
-			} catch (error) {
-				errorResponse(res, error);
-			}
-		});
-
-		// get instructor data with class details
-		app.get("/instructor", async (req, res) => {
-			try {
-				const classes = await classesCollection.find().toArray();
-				const data = [];
-				const instructors = await userCollection
-					.find({ role: "instructor" })
-					.toArray();
-				instructors.forEach((i, ind) => {
-					const result = classes.filter(
-						(c) => c.instructor.toString() === i._id.toString()
-					);
-					data.push({ instructor: i, classes: result });
-				});
-				res.status(200).json(data);
-			} catch (error) {
-				errorResponse(res, error);
-			}
-		});
-
-		// get one instructor data with class details
-		app.get("/instructor/:id", async (req, res) => {
-			try {
-				const id = req.params.id;
-				const instructor = await userCollection.findOne({
-					_id: new ObjectId(id),
-				});
-				const classes = await classesCollection
-					.find({
-						instructor: new ObjectId(id),
-					})
-					.toArray();
-
-				res.status(200).json({ instructor, classes });
 			} catch (error) {
 				errorResponse(res, error);
 			}
@@ -308,9 +237,10 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 					userId: new ObjectId(req.user._id),
 				});
 				const classes = await getClasses();
-				const result = classes.filter(
-					(i) =>
-						classIds?.enrolled.some((id) => id.toString() === i._id.toString())
+				const result = classes.filter((i) =>
+					classIds?.enrolled.some(
+						(id) => id.toString() === i._id.toString()
+					)
 				);
 				res.status(200).json(result);
 			} catch (error) {
@@ -327,6 +257,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				errorResponse(res, error);
 			}
 		});
+
 		// private classes api
 		app.get("/private-classes", jwtverify, async (req, res) => {
 			try {
@@ -339,11 +270,15 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				const classes = await getClasses();
 				const result = classes.map((i) => {
 					if (
-						enRolledclassIds?.enrolled.map((id) => id.toString()).includes(i._id.toString())
+						enRolledclassIds?.enrolled
+							.map((id) => id.toString())
+							.includes(i._id.toString())
 					) {
 						return { ...i, isEnrolled: true };
 					} else if (
-						selectedClassIds?.selectedClasses.map((id) => id.toString()).includes(i._id.toString())
+						selectedClassIds?.selectedClasses
+							.map((id) => id.toString())
+							.includes(i._id.toString())
 					) {
 						return { ...i, isSelected: true };
 					} else return i;
@@ -371,10 +306,10 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		});
 		//   save payment info
 		app.post("/payments", jwtverify, async (req, res) => {
-			const classeIds = req.body?.classItemsId.map(
-				(i) => new ObjectId(i)
-			);
 			try {
+				const classeIds = req.body?.classItemsId.map(
+					(i) => new ObjectId(i)
+				);
 				// insert payment details
 				await paymentsCollection.insertOne({
 					...req.body,
@@ -387,6 +322,12 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 						userId: new ObjectId(req.user._id),
 					},
 					{ $pull: { selectedClasses: { $in: classeIds } } }
+				);
+
+				// reduce seat number from class
+				await classesCollection.updateMany(
+					{ _id: { $in: classeIds } },
+					{ $inc: { availableSeats: -1 } }
 				);
 
 				// update enrolled classes
@@ -415,6 +356,60 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 
+		// intructor dashboard api
+		// get instructor data with class details
+		app.get("/instructor", async (req, res) => {
+			try {
+				const classes = await classesCollection.find().toArray();
+				const data = [];
+				const instructors = await userCollection
+					.find({ role: "instructor" })
+					.toArray();
+		
+				instructors.forEach((i, ind) => {
+					const result = classes.filter(
+						(c) => c.instructorId?.toString() === i._id.toString()
+					);
+					data.push({ instructor: i, classes: result });
+				});
+				res.status(200).json(data);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		// get one instructor data with class details
+		app.get("/instructor/:id", async (req, res) => {
+			try {
+				const id = req.params.id;
+				const instructor = await userCollection.findOne({
+					_id: new ObjectId(id),
+				});
+				const classes = await classesCollection
+					.find({
+						instructorId: new ObjectId(id),
+					})
+					.toArray();
+				res.status(200).json({ instructor, classes });
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		// add a class
+		app.post("/instructor/add-class", jwtverify, async (req, res) => {
+			try {
+				const reqData = req.body;
+				const classes = await classesCollection.insertOne({
+					...req.body,
+					instructorId: new ObjectId(req.user._id),
+				});
+				res.status(201).json(classes);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
 		// Start the server
 		app.listen(port, () => {
 			console.log(`Server is listening on port ${port}`);
@@ -423,7 +418,8 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 	.catch((err) => {
 		console.error("Error connecting to MongoDB:", err);
 	});
+
+// routes
 app.get("/", (req, res) => {
 	res.send("server is running");
 });
-// routes
