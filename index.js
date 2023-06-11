@@ -153,6 +153,11 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		app.get("/user/:role", async (req, res) => {
 			try {
 				const role = req.params.role;
+				if (role === "all") {
+					const result = await userCollection.find().toArray();
+					res.status(200).json(result);
+					return;
+				}
 				const result = await userCollection
 					.find({ role: role })
 					.toArray();
@@ -465,7 +470,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 					}
 					if (query === "updateFeedback") {
 						const feedback = req.body.text;
-						console.log(feedback)
+						console.log(feedback);
 						const update = await classesCollection.updateOne(
 							{
 								_id: new ObjectId(classId),
@@ -492,7 +497,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 					const role = req.query.role;
 					const userId = req.params?.userId;
 					const update = await userCollection.updateOne(
-						{ _id: new ObjectId(userId) },
+						{ _id: userId },
 						{ $set: { role } }
 					);
 					res.status(200).json(update);
