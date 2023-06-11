@@ -55,18 +55,17 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		);
 		const enrolledCollection = db.collection("enrolled");
 		const paymentsCollection = db.collection("payments");
-		const pendingClassCollection = db.collection("pendingClasses");
 
 		// utils
 		// insertEnrolData
 		const insertEnrollData = async (classIds, req) => {
 			try {
 				const enrolled = await enrolledCollection.findOne({
-					userId: new ObjectId(req.user._id),
+					userId: req.user._id,
 				});
 				if (enrolled) {
 					await enrolledCollection.updateOne(
-						{ userId: new ObjectId(req.user._id) },
+						{ userId: req.user._id },
 						{
 							$push: {
 								enrolled: { $each: classIds },
@@ -75,7 +74,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 					);
 				} else {
 					await enrolledCollection.insertOne({
-						userId: new ObjectId(req.user._id),
+						userId: req.user._id,
 						enrolled: classIds,
 					});
 				}
@@ -87,7 +86,9 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		// get classes
 		const getClasses = async () => {
 			try {
-				return await classesCollection.find().toArray();
+				return await classesCollection
+					.find({ status: 'aprroved' })
+					.toArray();
 			} catch (error) {
 				return error;
 			}
@@ -168,11 +169,11 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				if (query === "add") {
 					let user;
 					const selectlist = await selectedClassCollection.findOne({
-						userId: new ObjectId(req.user._id),
+						userId: req.user._id,
 					});
 					if (selectlist) {
 						user = await selectedClassCollection.updateOne(
-							{ userId: new ObjectId(req.user._id) },
+							{ userId: req.user._id },
 							{
 								$push: {
 									selectedClasses: new ObjectId(classId),
@@ -181,7 +182,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 						);
 					} else {
 						user = await selectedClassCollection.insertOne({
-							userId: new ObjectId(req.user._id),
+							userId: req.user._id,
 							selectedClasses: [new ObjectId(classId)],
 						});
 					}
@@ -191,7 +192,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 
 				if (query === "remove") {
 					const user = await selectedClassCollection.updateOne(
-						{ userId: new ObjectId(req.user._id) },
+						{ userId: req.user._id },
 						{ $pull: { selectedClasses: new ObjectId(classId) } }
 					);
 					res.status(200).json(user);
@@ -205,22 +206,21 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			try {
 				const query = req.query.action;
 				const classIds = await selectedClassCollection.findOne({
-					userId: new ObjectId(req.user._id),
+					userId: req.user._id,
 				});
-
 				if (query === "get_only_ids") {
 					res.status(200).json(classIds);
 					return;
 				}
 
 				const enRolledclassIds = await enrolledCollection.findOne({
-					userId: new ObjectId(req.user._id),
+					userId: req.user._id,
 				});
 
 				const classes = await getClasses();
 
 				const result = classes.filter((i) =>
-					classIds.selectedClasses.some(
+					classIds?.selectedClasses.some(
 						(id) => id.toString() === i._id.toString()
 					)
 				);
@@ -235,7 +235,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		app.get("/enrolled-classes", jwtverify, async (req, res) => {
 			try {
 				const classIds = await enrolledCollection.findOne({
-					userId: new ObjectId(req.user._id),
+					userId: req.user._id,
 				});
 				const classes = await getClasses();
 				const result = classes.filter((i) =>
@@ -263,10 +263,10 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		app.get("/private-classes", jwtverify, async (req, res) => {
 			try {
 				const selectedClassIds = await selectedClassCollection.findOne({
-					userId: new ObjectId(req.user._id),
+					userId: req.user._id,
 				});
 				const enRolledclassIds = await enrolledCollection.findOne({
-					userId: new ObjectId(req.user._id),
+					userId: req.user._id,
 				});
 				const classes = await getClasses();
 				const result = classes.map((i) => {
@@ -314,13 +314,13 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				// insert payment details
 				await paymentsCollection.insertOne({
 					...req.body,
-					userId: new ObjectId(req.user._id),
+					userId: req.user._id,
 				});
 
 				// delete selected classes
 				await selectedClassCollection.updateOne(
 					{
-						userId: new ObjectId(req.user._id),
+						userId: req.user._id,
 					},
 					{ $pull: { selectedClasses: { $in: classeIds } } }
 				);
@@ -328,7 +328,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				// reduce seat number from class
 				await classesCollection.updateMany(
 					{ _id: { $in: classeIds } },
-					{ $inc: { availableSeats: -1 } }
+					{ $inc: { availableSeats: -1, enrolled: 1 } }
 				);
 
 				// update enrolled classes
@@ -347,7 +347,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			try {
 				const payments = await paymentsCollection
 					.find({
-						userId: new ObjectId(req.user._id),
+						userId: req.user._id,
 					})
 					.sort({ date: -1 })
 					.toArray();
@@ -385,11 +385,12 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			try {
 				const id = req.params.id;
 				const instructor = await userCollection.findOne({
-					_id: new ObjectId(id),
+					_id: id,
 				});
 				const classes = await classesCollection
 					.find({
-						instructorId: new ObjectId(id),
+						instructorId: id,
+						status: "approved",
 					})
 					.toArray();
 				res.status(200).json({ instructor, classes });
@@ -402,13 +403,13 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		app.post("/instructor/add-class", jwtverify, async (req, res) => {
 			try {
 				const reqData = req.body;
-				reqData.instructorId = new ObjectId(req.user._id);
+				reqData.instructorId = req.user._id;
 				reqData.status = "pending";
 				reqData.enrolled = 0;
-				reqData.feedback = "--";
-				const classes = await pendingClassCollection.insertOne({
+				reqData.feedback = "";
+				const classes = await classesCollection.insertOne({
 					...reqData,
-					instructorId: new ObjectId(req.user._id),
+					...reqData,
 				});
 				res.status(201).json(classes);
 			} catch (error) {
@@ -416,26 +417,28 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 			}
 		});
 		// get added classes
-		app.get("/instructor/added-classes", jwtverify, async (req, res) => {
-			try {
-				const result = await pendingClassCollection
-					.find({
-						instructorId: new ObjectId(req.user._id),
-					})
-					.toArray();
-				res.status(200).json(result);
-			} catch (error) {
-				errorResponse(res, error);
+		app.get(
+			"/instructor/add-class/my-classes",
+			jwtverify,
+			async (req, res) => {
+				try {
+					const result = await classesCollection
+						.find({
+							instructorId: req.user._id,
+						})
+						.toArray();
+					res.status(200).json(result);
+				} catch (error) {
+					errorResponse(res, error);
+				}
 			}
-		});
+		);
 
 		// admin's api
 		// get pending classes
 		app.get("/admin/manage-classes", async (req, res) => {
 			try {
-				const pendingClasses = await pendingClassCollection
-					.find()
-					.toArray();
+				const pendingClasses = await classesCollection.find().toArray();
 				res.status(200).json(pendingClasses);
 			} catch (error) {
 				errorResponse(res, error);
@@ -443,49 +446,63 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		});
 
 		// pending status and feedback update
-		app.put("/admin/manage-classes/:pendingClassId",jwtverify,adminVerify, async (req, res) => {
-			try {
-				const query = req.query.action;
-				const pendingClassId = req.params?.pendingClassId;
-				if (query === "updateStatus" && req.query.status) {
-					const update = await pendingClassCollection.updateOne(
-						{ _id: new ObjectId(pendingClassId) },
-						{ $set: { status: req.query.status } }
-					);
-					res.status(200).json(update);
-					return;
+		app.put(
+			"/admin/manage-classes/:classId",
+			jwtverify,
+			adminVerify,
+			async (req, res) => {
+				try {
+					const query = req.query.action;
+					const classId = req.params?.classId;
+					if (query === "updateStatus" && req.query.status) {
+						const update = await classesCollection.updateOne(
+							{ _id: new ObjectId(classId) },
+							{ $set: { status: req.query.status } }
+						);
+						res.status(200).json(update);
+						return;
+					}
+					if (query === "updateFeedback") {
+						const feedback = req.body;
+						const update = await classesCollection.updateOne(
+							{
+								_id: new ObjectId(classId),
+							},
+							{
+								$set: { feedback },
+							}
+						);
+						res.status(200).json(update);
+					}
+				} catch (error) {
+					errorResponse(res, error);
 				}
-				if (query === "updateFeedback") {
-					const feedback = req.body;
-					const update = await pendingClassCollection.updateOne(
-						{
-							_id: new ObjectId(pendingClassId),
-						},
-						{
-							$set: { feedback },
-						}
-					);
-					res.status(200).json(update);
-				}
-			} catch (error) {
-				errorResponse(res, error);
 			}
+		);
+
+		// manage users
+		app.put(
+			"/admin/manage-users/:userId",
+			jwtverify,
+			adminVerify,
+			async (req, res) => {
+				try {
+					const role = req.query.role;
+					const userId = req.params?.userId;
+					const update = await userCollection.updateOne(
+						{ _id: new ObjectId(userId) },
+						{ $set: { role } }
+					);
+					res.status(200).json(update);
+				} catch (error) {
+					errorResponse(res, error);
+				}
+			}
+		);
+		app.get("/", async (req, res) => {
+			res.send("server is running");
 		});
 
-		// manage users 
-		app.put("/admin/manage-users/:userId", jwtverify,adminVerify, async (req, res) => {
-			try {
-				const role = req.query.role;
-				const userId = req.params?.userId;
-				const update = await userCollection.updateOne(
-					{ _id: new ObjectId(userId) },
-					{ $set: { role } }
-				);
-				res.status(200).json(update);
-			} catch (error) {
-				errorResponse(res, error);
-			}
-		});
 		// Start the server
 		app.listen(port, () => {
 			console.log(`Server is listening on port ${port}`);
@@ -496,6 +513,3 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 	});
 
 // routes
-app.get("/", (req, res) => {
-	res.send("server is running");
-});
