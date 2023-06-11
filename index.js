@@ -37,6 +37,7 @@ const adminVerify = async (req, res, next) => {
 		req.user.role === "admin"
 			? next()
 			: res.status(403).json("you dont have permission to do this");
+		// return;
 	} catch (error) {
 		errorResponse(res, error);
 	}
@@ -87,7 +88,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		const getClasses = async () => {
 			try {
 				return await classesCollection
-					.find({ status: 'aprroved' })
+					.find({ status: "aprroved" })
 					.toArray();
 			} catch (error) {
 				return error;
@@ -446,7 +447,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		});
 
 		// pending status and feedback update
-		app.put(
+		app.patch(
 			"/admin/manage-classes/:classId",
 			jwtverify,
 			adminVerify,
@@ -454,7 +455,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				try {
 					const query = req.query.action;
 					const classId = req.params?.classId;
-					if (query === "updateStatus" && req.query.status) {
+					if (query === "updateStatus") {
 						const update = await classesCollection.updateOne(
 							{ _id: new ObjectId(classId) },
 							{ $set: { status: req.query.status } }
@@ -463,13 +464,14 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 						return;
 					}
 					if (query === "updateFeedback") {
-						const feedback = req.body;
+						const feedback = req.body.text;
+						console.log(feedback)
 						const update = await classesCollection.updateOne(
 							{
 								_id: new ObjectId(classId),
 							},
 							{
-								$set: { feedback },
+								$set: { feedback: feedback },
 							}
 						);
 						res.status(200).json(update);
@@ -499,6 +501,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				}
 			}
 		);
+
 		app.get("/", async (req, res) => {
 			res.send("server is running");
 		});
