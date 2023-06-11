@@ -55,6 +55,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		);
 		const enrolledCollection = db.collection("enrolled");
 		const paymentsCollection = db.collection("payments");
+		const pendingClassCollection = db.collection("pendingClasses");
 
 		// utils
 		// insertEnrolData
@@ -357,6 +358,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		});
 
 		// intructor dashboard api
+
 		// get instructor data with class details
 		app.get("/instructor", async (req, res) => {
 			try {
@@ -365,7 +367,7 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				const instructors = await userCollection
 					.find({ role: "instructor" })
 					.toArray();
-		
+
 				instructors.forEach((i, ind) => {
 					const result = classes.filter(
 						(c) => c.instructorId?.toString() === i._id.toString()
@@ -400,8 +402,12 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 		app.post("/instructor/add-class", jwtverify, async (req, res) => {
 			try {
 				const reqData = req.body;
-				const classes = await classesCollection.insertOne({
-					...req.body,
+				reqData.instructorId = new ObjectId(req.user._id);
+				reqData.status = "pending";
+				reqData.enrolled = 0;
+				reqData.feedback = "--";
+				const classes = await pendingClassCollection.insertOne({
+					...reqData,
 					instructorId: new ObjectId(req.user._id),
 				});
 				res.status(201).json(classes);
@@ -409,7 +415,77 @@ MongoClient.connect(process.env.MONGO_URI, { useUnifiedTopology: true })
 				errorResponse(res, error);
 			}
 		});
+		// get added classes
+		app.get("/instructor/added-classes", jwtverify, async (req, res) => {
+			try {
+				const result = await pendingClassCollection
+					.find({
+						instructorId: new ObjectId(req.user._id),
+					})
+					.toArray();
+				res.status(200).json(result);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
 
+		// admin's api
+		// get pending classes
+		app.get("/admin/manage-classes", async (req, res) => {
+			try {
+				const pendingClasses = await pendingClassCollection
+					.find()
+					.toArray();
+				res.status(200).json(pendingClasses);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		// pending status and feedback update
+		app.put("/admin/manage-classes/:pendingClassId",jwtverify,adminVerify, async (req, res) => {
+			try {
+				const query = req.query.action;
+				const pendingClassId = req.params?.pendingClassId;
+				if (query === "updateStatus" && req.query.status) {
+					const update = await pendingClassCollection.updateOne(
+						{ _id: new ObjectId(pendingClassId) },
+						{ $set: { status: req.query.status } }
+					);
+					res.status(200).json(update);
+					return;
+				}
+				if (query === "updateFeedback") {
+					const feedback = req.body;
+					const update = await pendingClassCollection.updateOne(
+						{
+							_id: new ObjectId(pendingClassId),
+						},
+						{
+							$set: { feedback },
+						}
+					);
+					res.status(200).json(update);
+				}
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
+
+		// manage users 
+		app.put("/admin/manage-users/:userId", jwtverify,adminVerify, async (req, res) => {
+			try {
+				const role = req.query.role;
+				const userId = req.params?.userId;
+				const update = await userCollection.updateOne(
+					{ _id: new ObjectId(userId) },
+					{ $set: { role } }
+				);
+				res.status(200).json(update);
+			} catch (error) {
+				errorResponse(res, error);
+			}
+		});
 		// Start the server
 		app.listen(port, () => {
 			console.log(`Server is listening on port ${port}`);
